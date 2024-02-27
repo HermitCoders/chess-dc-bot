@@ -81,8 +81,8 @@ class Music(commands.Cog):
             player = await YTDLSource.from_url(url, loop=self.bot.loop, volume=self._current_volume)
             self._song_queue.put(player)
         await ctx.send(f'Queued: {player.title}')
-        print(f'Queued: <{player.title}>')
-        print(ctx.voice_client.is_playing())
+        print(f'Queued: {player.title}')
+
         if not ctx.voice_client.is_playing():
             await self.play_next_song(ctx)
 
