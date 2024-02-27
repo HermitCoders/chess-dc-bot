@@ -3,6 +3,7 @@ import discord
 import yt_dlp as youtube_dl
 
 from discord.ext import commands
+from queue import LifoQueue
 
 # Suppress noise about console usage from errors
 youtube_dl.utils.bug_reports_message = lambda: ''
@@ -54,7 +55,77 @@ class YTDLSource(discord.PCMVolumeTransformer):
 class Music(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self._default_volume = 0.02
+        self._current_volume = 0.02
+
+        self._song_queue: LifoQueue[discord.PCMVolumeTransformer] = LifoQueue()
+        self._queue_enabled: bool = False
+
+    def play_next_song(self, ctx):
+        if self._queue_enabled:
+            if not self._song_queue.empty():
+                player: discord.PCMVolumeTransformer = self._song_queue.get()
+                player.volume = self._current_volume
+                ctx.voice_client.play(player, after=lambda e: print(f'Player error: {e}') if e else self.play_next_song(ctx))
+                self.bot.loop.create_task(ctx.send(f'From queue, now playing: {player.title}'))
+                print(f'From queue, now playing: {player.title}')
+            else:
+                self.bot.loop.create_task(ctx.send(f'Queue is empty'))
+                print(f'Queue is empty')
+
+    @commands.command()
+    async def qAdd(self, ctx, *, url):
+        """Enables queue and adds song to queue"""
+        self._queue_enabled = True
+
+        async with ctx.typing():    
+            player = await YTDLSource.from_url(url, loop=self.bot.loop, volume=self._current_volume)
+            self._song_queue.put(player)
+        await ctx.send(f'Queued: {player.title}')
+        print(f'Queued: <{player.title}>')
+        print(ctx.voice_client.is_playing())
+        if not ctx.voice_client.is_playing():
+            await self.play_next_song(ctx)
+
+    @commands.command()
+    async def qSkip(self, ctx):
+        """Skips current song and plays next in queue"""
+        vc: discord.VoiceClient = ctx.voice_client
+        if vc.is_playing():
+            async with ctx.typing(): 
+                vc.stop()   
+            await ctx.send(f'Skipped song: {vc.source.title}')
+            print(f'Skipped song: {vc.source.title}')
+
+    @commands.command()
+    async def qClear(self, ctx):
+        """Clears queue"""
+        with self._song_queue.mutex:
+            self._song_queue.queue.clear()
+        await ctx.send(f'Queue was cleared')
+        print(f'Queue was cleared')
+
+    @commands.command()
+    async def qOff(self, ctx):
+        """Disables and clears queue"""
+        self._queue_enabled = False
+
+        with self._song_queue.mutex:
+            self._song_queue.queue.clear()
+        await ctx.send(f'Queue was cleared and disabled')
+        print(f'Queue was cleared and disabled')
+
+    @commands.command()
+    async def qShow(self, ctx):
+        """Shows queue"""
+        with self._song_queue.mutex:
+            queue = list(self._song_queue.queue)
+            if len(queue) > 0:
+                msg = "\n- ".join([song.title for song in queue])
+                await ctx.send(f'Current queue:\n- {msg}')
+            else:
+                await ctx.send(f'Current queue is empty')
+
+        print(f'Queue was showed')
 
     @commands.command()
     async def join(self, ctx, *, channel: discord.VoiceChannel):
@@ -73,8 +144,8 @@ class Music(commands.Cog):
     async def play(self, ctx, *, query):
         """Plays a file from the local filesystem"""
 
-        source = discord.PCMVolumeTransformer(discord.FFmpegPCMAudio(query), volume=self._default_volume)
-        ctx.voice_client.play(source, after=lambda e: print(f'Player error: {e}') if e else None)
+        source = discord.PCMVolumeTransformer(discord.FFmpegPCMAudio(query), volume=self._current_volume)
+        ctx.voice_client.play(source, after=lambda e: print(f'Player error: {e}') if e else self.play_next_song(ctx))
 
         await ctx.send(f'Now playing: {query}')
         print(f'Now playing: {query}')
@@ -84,8 +155,8 @@ class Music(commands.Cog):
         """Plays from a url (almost anything youtube_dl supports)"""
 
         async with ctx.typing():
-            player = await YTDLSource.from_url(url, loop=self.bot.loop, volume=self._default_volume)
-            ctx.voice_client.play(player, after=lambda e: print(f'Player error: {e}') if e else None)
+            player = await YTDLSource.from_url(url, loop=self.bot.loop, volume=self._current_volume)
+            ctx.voice_client.play(player, after=lambda e: print(f'Player error: {e}') if e else self.play_next_song(ctx))
 
         await ctx.send(f'Now playing: {player.title}')
         print(f'Now playing: {player.title}')
@@ -95,8 +166,8 @@ class Music(commands.Cog):
         """Streams from a url (same as yt, but doesn't predownload)"""
 
         async with ctx.typing():
-            player = await YTDLSource.from_url(url, loop=self.bot.loop, stream=True, volume=self._default_volume)
-            ctx.voice_client.play(player, after=lambda e: print(f'Player error: {e}') if e else None)
+            player = await YTDLSource.from_url(url, loop=self.bot.loop, stream=True, volume=self._current_volume)
+            ctx.voice_client.play(player, after=lambda e: print(f'Player error: {e}') if e else self.play_next_song(ctx))
 
         await ctx.send(f'Now playing: {player.title}')
         print(f'Now playing: {player.title}')
@@ -111,7 +182,7 @@ class Music(commands.Cog):
         # set volume for current song playing
         ctx.voice_client.source.volume = volume / 100
         # save volume for next song
-        self._default_volume = volume / 100
+        self._current_volume = volume / 100
 
         await ctx.send(f"Changed volume to {volume}%")
         print(f"Changed volume to {volume}%")
@@ -127,6 +198,8 @@ class Music(commands.Cog):
     async def stop(self, ctx):
         """Stops playing audio"""
         vc: discord.VoiceClient = ctx.voice_client
+        self._queue_enabled = False
+
         if vc is None:
             return await ctx.send("Not connected to a voice channel.")
 
@@ -135,22 +208,6 @@ class Music(commands.Cog):
                 vc.stop()
             await ctx.send(f'Stopped audio')
             print("Stopped audio")
-        else:
-            await ctx.send(f'Nothing\' playin\' mate')
-            print("Audio is already stopped/paused")
-
-    @commands.command()
-    async def pause(self, ctx):
-        """Pauses playing audio"""
-        vc: discord.VoiceClient = ctx.voice_client
-        if vc is None:
-            return await ctx.send("Not connected to a voice channel.")
-
-        if vc.is_playing():
-            async with ctx.typing():
-                vc.pause()
-            await ctx.send(f'Paused audio')
-            print("Paused audio")
         else:
             await ctx.send(f'Nothing\' playin\' mate')
             print("Audio is already stopped/paused")
@@ -187,11 +244,10 @@ class Music(commands.Cog):
             await ctx.send(f'Nothing\' playin\' mate')
             print("Audio is already stopped/paused")
 
-
     @play.before_invoke
     @yt.before_invoke
     @stream.before_invoke
-    async def ensure_voice(self, ctx):
+    async def ensure_voice_stop_current_song(self, ctx):
         if ctx.voice_client is None:
             if ctx.author.voice:
                 await ctx.author.voice.channel.connect()
@@ -201,6 +257,14 @@ class Music(commands.Cog):
         elif ctx.voice_client.is_playing():
             ctx.voice_client.stop()
 
+    @qAdd.before_invoke
+    async def ensure_voice(self, ctx):
+        if ctx.voice_client is None:
+            if ctx.author.voice:
+                await ctx.author.voice.channel.connect()
+            else:
+                await ctx.send("You are not connected to a voice channel.")
+                raise commands.CommandError("Author not connected to a voice channel.")
 
     @commands.command()
     async def helpMusic(self, ctx):
