@@ -15,10 +15,12 @@ ytdl_format_options = {
     'restrictfilenames': True,
     'noplaylist': True,
     'nocheckcertificate': True,
-    'ignoreerrors': False,
+    'ignoreerrors': True,
     'logtostderr': False,
-    'quiet': True,
+    'quiet': False,
+    'progress': True,
     'no_warnings': True,
+    'extract_flat': True,
     'default_search': 'auto',
     'source_address': '0.0.0.0',  # bind to ipv4 since ipv6 addresses cause issues sometimes
 }
@@ -64,9 +66,9 @@ class Music(commands.Cog):
         if self._queue_enabled:
             if not self._song_queue.empty():
                 song_data: dict = self._song_queue.get()
-                player: discord.PCMVolumeTransformer = await YTDLSource.from_url(song_data['original_url'], loop=self.bot.loop, volume=self._current_volume)
+                player: discord.PCMVolumeTransformer = await YTDLSource.from_url(song_data['url'], loop=self.bot.loop, volume=self._current_volume)
                 ctx.voice_client.play(player, after=lambda e: print(f'Player error: {e}') if e else self.bot.loop.create_task(self.play_next_song(ctx)))
-                await ctx.send(f'From queue, now playing: {player.title}')
+                await ctx.send(f'From queue, now playing: **{player.title}**')
                 print(f'From queue, now playing: {player.title}')
             else:
                 await ctx.send(f'Queue is empty')
@@ -93,6 +95,7 @@ class Music(commands.Cog):
 
         async with ctx.typing():    
             song_data = await self.bot.loop.run_in_executor(None, lambda: ytdl.extract_info(url, download=False))
+            song_data['url'] = url
             self._song_queue.put(song_data)
         await ctx.send(f'Queued: **{song_data['title']}**')
         print(f'Queued: {song_data['title']}')
@@ -133,11 +136,14 @@ class Music(commands.Cog):
         """Shows queue"""
         with self._song_queue.mutex:
             queue = list(self._song_queue.queue)
-            if len(queue) > 0:
-                msg = "\n- ".join([song['title'] for song in queue])
-                await ctx.send(f'Current queue:\n- {msg}')
-            else:
-                await ctx.send(f'Current queue is empty')
+        song_limit = 10
+        if len(queue) > 0:
+            msg = "\n- ".join([song['title'] for song in queue[:song_limit]])
+            if len(queue) > song_limit:
+                msg = msg + "\n- ..."
+            await ctx.send(f'Current queue:\n- {msg}')
+        else:
+            await ctx.send(f'Current queue is empty')
 
         print(f'Queue was showed')
 
@@ -311,6 +317,7 @@ If user is in a voice channel and uses any of audio source commands, bot joins u
 
 ## Queue manipulation:
 - !qAdd **youtube-utl** - enables queue and adds song to queue, plays it if it is the first in queue;
+- !qPlaylist **youtube-playlist-url** - enables queue and adds songs from playlist to queue, plays first if nothing is playing;
 - !qSkip - skips current song, plays next one in queue;
 - !qShow - shows current queue;
 - !qClear - clears queue;
