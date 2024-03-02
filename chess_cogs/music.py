@@ -3,7 +3,7 @@ import discord
 import yt_dlp as youtube_dl
 
 from discord.ext import commands
-from queue import LifoQueue
+from queue import Queue
 
 # Suppress noise about console usage from errors
 youtube_dl.utils.bug_reports_message = lambda: ''
@@ -57,7 +57,7 @@ class Music(commands.Cog):
         self.bot = bot
         self._current_volume = 0.02
 
-        self._song_queue: LifoQueue[discord.PCMVolumeTransformer] = LifoQueue()
+        self._song_queue: Queue[discord.PCMVolumeTransformer] = Queue()
         self._queue_enabled: bool = False
 
     def play_next_song(self, ctx):
@@ -274,7 +274,8 @@ class Music(commands.Cog):
 This bot has several commands that you can use, let's divide them into three groups, each for managing:
 - connection,
 - audio source,
-- audio itself.
+- audio itself,
+- queue.
 
 ## Connection commands:
 - !join **voice-channel-name** - joins voice channel with specified name (case sensitive) and greets other channel members;
@@ -292,6 +293,13 @@ If user is in a voice channel and uses any of audio source commands, bot joins u
 - !stop - stops audio, removes it from player, cannot be resumed;
 - !pause - pauses audio;
 - !resumed - resumes audio.
+
+## Queue manipulation:
+- !qAdd **youtube-utl** - enables queue and adds song to queue, plays it if it is the first in queue;
+- !qSkip - skips current song, plays next one in queue;
+- !qShow - shows current queue;
+- !qClear - clears queue;
+- !qOff - clears and disables queue;
         """
         await ctx.send(help_msg)
         print("Showed help")
