@@ -57,20 +57,34 @@ class Music(commands.Cog):
         self.bot = bot
         self._current_volume = 0.02
 
-        self._song_queue: Queue[discord.PCMVolumeTransformer] = Queue()
+        self._song_queue: Queue[dict] = Queue()
         self._queue_enabled: bool = False
 
-    def play_next_song(self, ctx):
+    async def play_next_song(self, ctx):
         if self._queue_enabled:
             if not self._song_queue.empty():
-                player: discord.PCMVolumeTransformer = self._song_queue.get()
-                player.volume = self._current_volume
-                ctx.voice_client.play(player, after=lambda e: print(f'Player error: {e}') if e else self.play_next_song(ctx))
-                self.bot.loop.create_task(ctx.send(f'From queue, now playing: {player.title}'))
+                song_data: dict = self._song_queue.get()
+                player: discord.PCMVolumeTransformer = await YTDLSource.from_url(song_data['original_url'], loop=self.bot.loop, volume=self._current_volume)
+                ctx.voice_client.play(player, after=lambda e: print(f'Player error: {e}') if e else self.bot.loop.create_task(self.play_next_song(ctx)))
+                await ctx.send(f'From queue, now playing: {player.title}')
                 print(f'From queue, now playing: {player.title}')
             else:
-                self.bot.loop.create_task(ctx.send(f'Queue is empty'))
+                await ctx.send(f'Queue is empty')
                 print(f'Queue is empty')
+
+    @commands.command()
+    async def qPlaylist(self, ctx, *, url):
+        """"Enables queue and adds songs from playlist to queue"""
+        self._queue_enabled = True
+        async with ctx.typing():    
+            playlist_data = await self.bot.loop.run_in_executor(None, lambda: ytdl.extract_info(url, download=False))
+            for song_data in playlist_data['entries']:
+                self._song_queue.put(song_data)
+            await ctx.send(f'Queued: playlist **{playlist_data['title']}** with **{len(playlist_data['entries'])}** songs')
+            print(f'Queued: playlist {playlist_data['title']} with {len(playlist_data['entries'])} songs')
+
+            if not ctx.voice_client.is_playing():
+                await self.play_next_song(ctx)
 
     @commands.command()
     async def qAdd(self, ctx, *, url):
@@ -78,10 +92,10 @@ class Music(commands.Cog):
         self._queue_enabled = True
 
         async with ctx.typing():    
-            player = await YTDLSource.from_url(url, loop=self.bot.loop, volume=self._current_volume)
-            self._song_queue.put(player)
-        await ctx.send(f'Queued: {player.title}')
-        print(f'Queued: {player.title}')
+            song_data = await self.bot.loop.run_in_executor(None, lambda: ytdl.extract_info(url, download=False))
+            self._song_queue.put(song_data)
+        await ctx.send(f'Queued: **{song_data['title']}**')
+        print(f'Queued: {song_data['title']}')
 
         if not ctx.voice_client.is_playing():
             await self.play_next_song(ctx)
@@ -93,8 +107,8 @@ class Music(commands.Cog):
         if vc.is_playing():
             async with ctx.typing(): 
                 vc.stop()   
-            await ctx.send(f'Skipped song: {vc.source.title}')
-            print(f'Skipped song: {vc.source.title}')
+            await ctx.send(f'Skipped: **{vc.source.title}**')
+            print(f'Skipped: {vc.source.title}')
 
     @commands.command()
     async def qClear(self, ctx):
@@ -120,7 +134,7 @@ class Music(commands.Cog):
         with self._song_queue.mutex:
             queue = list(self._song_queue.queue)
             if len(queue) > 0:
-                msg = "\n- ".join([song.title for song in queue])
+                msg = "\n- ".join([song['title'] for song in queue])
                 await ctx.send(f'Current queue:\n- {msg}')
             else:
                 await ctx.send(f'Current queue is empty')
@@ -184,7 +198,7 @@ class Music(commands.Cog):
         # save volume for next song
         self._current_volume = volume / 100
 
-        await ctx.send(f"Changed volume to {volume}%")
+        await ctx.send(f"Changed volume to **{volume}%**")
         print(f"Changed volume to {volume}%")
 
     @commands.command()
@@ -258,6 +272,7 @@ class Music(commands.Cog):
             ctx.voice_client.stop()
 
     @qAdd.before_invoke
+    @qPlaylist.before_invoke
     async def ensure_voice(self, ctx):
         if ctx.voice_client is None:
             if ctx.author.voice:
