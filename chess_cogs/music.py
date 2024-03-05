@@ -8,10 +8,9 @@ from queue import Queue
 # Suppress noise about console usage from errors
 youtube_dl.utils.bug_reports_message = lambda: ''
 
-
 ytdl_format_options = {
     'format': 'bestaudio/best',
-    'outtmpl': '%(extractor)s-%(id)s-%(title)s.%(ext)s',
+    'outtmpl': '%(extractor)s/%(id)s-%(title)s.%(ext)s',
     'restrictfilenames': True,
     'noplaylist': True,
     'nocheckcertificate': True,
@@ -75,8 +74,12 @@ class Music(commands.Cog):
                 print(f'Queue is empty')
 
     @commands.command()
-    async def qPlaylist(self, ctx, *, url):
-        """"Enables queue and adds songs from playlist to queue"""
+    async def playlist(self, ctx, *, url):
+        """"Enables queue and adds songs from playlist to queue
+            Parameters:
+                    url (str): A decimal integer
+                    b (int): Another decimal integer
+        """
         self._queue_enabled = True
         async with ctx.typing():    
             playlist_data = await self.bot.loop.run_in_executor(None, lambda: ytdl.extract_info(url, download=False))
@@ -89,7 +92,7 @@ class Music(commands.Cog):
                 await self.play_next_song(ctx)
 
     @commands.command()
-    async def qAdd(self, ctx, *, url):
+    async def add(self, ctx, *, url):
         """Enables queue and adds song to queue"""
         self._queue_enabled = True
 
@@ -104,7 +107,7 @@ class Music(commands.Cog):
             await self.play_next_song(ctx)
 
     @commands.command()
-    async def qSkip(self, ctx):
+    async def skip(self, ctx):
         """Skips current song and plays next in queue"""
         vc: discord.VoiceClient = ctx.voice_client
         if vc.is_playing():
@@ -114,7 +117,7 @@ class Music(commands.Cog):
             print(f'Skipped: {vc.source.title}')
 
     @commands.command()
-    async def qClear(self, ctx):
+    async def clear(self, ctx):
         """Clears queue"""
         with self._song_queue.mutex:
             self._song_queue.queue.clear()
@@ -122,7 +125,7 @@ class Music(commands.Cog):
         print(f'Queue was cleared')
 
     @commands.command()
-    async def qOff(self, ctx):
+    async def off(self, ctx):
         """Disables and clears queue"""
         self._queue_enabled = False
 
@@ -132,7 +135,7 @@ class Music(commands.Cog):
         print(f'Queue was cleared and disabled')
 
     @commands.command()
-    async def qShow(self, ctx):
+    async def show(self, ctx):
         """Shows queue"""
         with self._song_queue.mutex:
             queue = list(self._song_queue.queue)
@@ -146,51 +149,6 @@ class Music(commands.Cog):
             await ctx.send(f'Current queue is empty')
 
         print(f'Queue was showed')
-
-    @commands.command()
-    async def join(self, ctx, *, channel: discord.VoiceChannel):
-        """Joins a voice channel"""
-        voice = None
-        if ctx.voice_client is not None:
-            voice = await ctx.voice_client.move_to(channel)
-        else:
-            voice = await channel.connect()
-        
-        print(f'Joined {channel.name} channel')
-        source = discord.PCMVolumeTransformer(discord.FFmpegPCMAudio("X2Download.app - Alright let's do this (Counter Strike Bot Call) - Sound Effect for editing (320 kbps).mp3"))
-        voice.play(source)
-
-    @commands.command()
-    async def play(self, ctx, *, query):
-        """Plays a file from the local filesystem"""
-
-        source = discord.PCMVolumeTransformer(discord.FFmpegPCMAudio(query), volume=self._current_volume)
-        ctx.voice_client.play(source, after=lambda e: print(f'Player error: {e}') if e else self.play_next_song(ctx))
-
-        await ctx.send(f'Now playing: {query}')
-        print(f'Now playing: {query}')
-
-    @commands.command()
-    async def yt(self, ctx, *, url):
-        """Plays from a url (almost anything youtube_dl supports)"""
-
-        async with ctx.typing():
-            player = await YTDLSource.from_url(url, loop=self.bot.loop, volume=self._current_volume)
-            ctx.voice_client.play(player, after=lambda e: print(f'Player error: {e}') if e else self.play_next_song(ctx))
-
-        await ctx.send(f'Now playing: {player.title}')
-        print(f'Now playing: {player.title}')
-
-    @commands.command()
-    async def stream(self, ctx, *, url):
-        """Streams from a url (same as yt, but doesn't predownload)"""
-
-        async with ctx.typing():
-            player = await YTDLSource.from_url(url, loop=self.bot.loop, stream=True, volume=self._current_volume)
-            ctx.voice_client.play(player, after=lambda e: print(f'Player error: {e}') if e else self.play_next_song(ctx))
-
-        await ctx.send(f'Now playing: {player.title}')
-        print(f'Now playing: {player.title}')
 
     @commands.command()
     async def volume(self, ctx, volume: int):
@@ -209,7 +167,11 @@ class Music(commands.Cog):
 
     @commands.command()
     async def kill(self, ctx):
-        """Stops and disconnects the bot from voice"""
+        """Disables and cleras queue, stops and disconnects the bot from voice"""
+        self._queue_enabled = False
+
+        with self._song_queue.mutex:
+            self._song_queue.queue.clear()
 
         await ctx.voice_client.disconnect()
         print("Voice channel disconnected")
@@ -264,25 +226,15 @@ class Music(commands.Cog):
             await ctx.send(f'Nothing\' playin\' mate')
             print("Audio is already stopped/paused")
 
-    @play.before_invoke
-    @yt.before_invoke
-    @stream.before_invoke
-    async def ensure_voice_stop_current_song(self, ctx):
-        if ctx.voice_client is None:
-            if ctx.author.voice:
-                await ctx.author.voice.channel.connect()
-            else:
-                await ctx.send("You are not connected to a voice channel.")
-                raise commands.CommandError("Author not connected to a voice channel.")
-        elif ctx.voice_client.is_playing():
-            ctx.voice_client.stop()
-
-    @qAdd.before_invoke
-    @qPlaylist.before_invoke
+    @add.before_invoke
+    @playlist.before_invoke
     async def ensure_voice(self, ctx):
         if ctx.voice_client is None:
             if ctx.author.voice:
-                await ctx.author.voice.channel.connect()
+                voice = await ctx.author.voice.channel.connect()
+                print(f'Joined {ctx.author.voice.channel.name} channel')
+                source = discord.PCMVolumeTransformer(discord.FFmpegPCMAudio("X2Download.app - Alright let's do this (Counter Strike Bot Call) - Sound Effect for editing (320 kbps).mp3"))
+                voice.play(source)
             else:
                 await ctx.send("You are not connected to a voice channel.")
                 raise commands.CommandError("Author not connected to a voice channel.")
@@ -294,20 +246,11 @@ class Music(commands.Cog):
 # Hello there!
 This bot has several commands that you can use, let's divide them into three groups, each for managing:
 - connection,
-- audio source,
 - audio itself,
 - queue.
 
 ## Connection commands:
-- !join **voice-channel-name** - joins voice channel with specified name (case sensitive) and greets other channel members;
 - !kill - stops audio and disconnects bot from voice channel.
-
-## Audio source commands:
-- !yt **youtube-url** - downloads audio from url to bot's host filesystem and then plays it in the voice channel;
-- !stream **youtube-url** - same as above, but audio is streamed;
-- !play **path-to-file** - plays a file from host filesystem.
-Each command can be executed only if user is connected to a voice channel.
-If user is in a voice channel and uses any of audio source commands, bot joins user in that voice channel.
 
 ## Audio manipulation:
 - !volume **integer from 0 to 100** - sets audio volume to specific number;
