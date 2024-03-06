@@ -162,3 +162,6 @@ cython_debug/
 # Project specific audio extensions
 *.mp3
 *.webm
+
+# Project specific directories
+results/
