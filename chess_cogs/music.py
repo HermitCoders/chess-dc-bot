@@ -73,12 +73,12 @@ class Music(commands.Cog):
                 await ctx.send(f'Queue is empty')
                 print(f'Queue is empty')
 
-    @commands.command()
-    async def playlist(self, ctx, *, url):
-        """"Enables queue and adds songs from playlist to queue
-            Parameters:
-                    url (str): A decimal integer
-                    b (int): Another decimal integer
+    @commands.command(aliases=['p'])
+    async def playlist(self, ctx, *, url: str):
+        """
+        Enables queue and adds songs from playlist to queue.
+
+        :param url: youtube url
         """
         self._queue_enabled = True
         async with ctx.typing():    
@@ -91,9 +91,13 @@ class Music(commands.Cog):
             if not ctx.voice_client.is_playing():
                 await self.play_next_song(ctx)
 
-    @commands.command()
+    @commands.command(aliases=['a'])
     async def add(self, ctx, *, url):
-        """Enables queue and adds song to queue"""
+        """
+        Enables queue and adds song to queue.
+
+        :param url: youtube url
+        """
         self._queue_enabled = True
 
         async with ctx.typing():    
@@ -106,9 +110,9 @@ class Music(commands.Cog):
         if not ctx.voice_client.is_playing():
             await self.play_next_song(ctx)
 
-    @commands.command()
+    @commands.command(aliases=['s'])
     async def skip(self, ctx):
-        """Skips current song and plays next in queue"""
+        """Skips current song and plays next in queue."""
         vc: discord.VoiceClient = ctx.voice_client
         if vc.is_playing():
             async with ctx.typing(): 
@@ -118,25 +122,15 @@ class Music(commands.Cog):
 
     @commands.command()
     async def clear(self, ctx):
-        """Clears queue"""
+        """Clears queue."""
         with self._song_queue.mutex:
             self._song_queue.queue.clear()
         await ctx.send(f'Queue was cleared')
         print(f'Queue was cleared')
 
     @commands.command()
-    async def off(self, ctx):
-        """Disables and clears queue"""
-        self._queue_enabled = False
-
-        with self._song_queue.mutex:
-            self._song_queue.queue.clear()
-        await ctx.send(f'Queue was cleared and disabled')
-        print(f'Queue was cleared and disabled')
-
-    @commands.command()
     async def show(self, ctx):
-        """Shows queue"""
+        """Shows queue."""
         with self._song_queue.mutex:
             queue = list(self._song_queue.queue)
         song_limit = 10
@@ -150,9 +144,13 @@ class Music(commands.Cog):
 
         print(f'Queue was showed')
 
-    @commands.command()
+    @commands.command(aliases=['v'])
     async def volume(self, ctx, volume: int):
-        """Changes the player's volume"""
+        """
+        Changes the player's volume.
+
+        :param volume: integer from 1 to 100
+        """
 
         if ctx.voice_client is None:
             return await ctx.send("Not connected to a voice channel.")
@@ -167,36 +165,28 @@ class Music(commands.Cog):
 
     @commands.command()
     async def kill(self, ctx):
-        """Disables and cleras queue, stops and disconnects the bot from voice"""
+        """Disables and cleras queue, stops and disconnects the bot from voice."""
+        vc: discord.VoiceClient = ctx.voice_client
         self._queue_enabled = False
 
         with self._song_queue.mutex:
             self._song_queue.queue.clear()
 
-        await ctx.voice_client.disconnect()
-        print("Voice channel disconnected")
-
-    @commands.command()
-    async def stop(self, ctx):
-        """Stops playing audio"""
-        vc: discord.VoiceClient = ctx.voice_client
-        self._queue_enabled = False
-
-        if vc is None:
-            return await ctx.send("Not connected to a voice channel.")
+        await ctx.send(f'Queue was cleared and disabled')
+        print(f'Queue was cleared and disabled')
 
         if vc.is_playing():
             async with ctx.typing():
                 vc.stop()
             await ctx.send(f'Stopped audio')
             print("Stopped audio")
-        else:
-            await ctx.send(f'Nothing\' playin\' mate')
-            print("Audio is already stopped/paused")
+
+        await ctx.voice_client.disconnect()
+        print("Voice channel disconnected")
 
     @commands.command()
     async def resume(self, ctx):
-        """Resumes playing audio"""
+        """Resumes audio."""
         vc: discord.VoiceClient = ctx.voice_client
         if vc is None:
             return await ctx.send("Not connected to a voice channel.")
@@ -212,7 +202,7 @@ class Music(commands.Cog):
 
     @commands.command()
     async def pause(self, ctx):
-        """Pauses playing audio"""
+        """Pauses audio."""
         vc: discord.VoiceClient = ctx.voice_client
         if vc is None:
             return await ctx.send("Not connected to a voice channel.")
@@ -238,33 +228,3 @@ class Music(commands.Cog):
             else:
                 await ctx.send("You are not connected to a voice channel.")
                 raise commands.CommandError("Author not connected to a voice channel.")
-
-    @commands.command()
-    async def helpMusic(self, ctx):
-        """Displays detailed music help"""
-        help_msg = """
-# Hello there!
-This bot has several commands that you can use, let's divide them into three groups, each for managing:
-- connection,
-- audio itself,
-- queue.
-
-## Connection commands:
-- !kill - stops audio and disconnects bot from voice channel.
-
-## Audio manipulation:
-- !volume **integer from 0 to 100** - sets audio volume to specific number;
-- !stop - stops audio, removes it from player, cannot be resumed;
-- !pause - pauses audio;
-- !resumed - resumes audio.
-
-## Queue manipulation:
-- !qAdd **youtube-utl** - enables queue and adds song to queue, plays it if it is the first in queue;
-- !qPlaylist **youtube-playlist-url** - enables queue and adds songs from playlist to queue, plays first if nothing is playing;
-- !qSkip - skips current song, plays next one in queue;
-- !qShow - shows current queue;
-- !qClear - clears queue;
-- !qOff - clears and disables queue;
-        """
-        await ctx.send(help_msg)
-        print("Showed help")
