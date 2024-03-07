@@ -18,7 +18,6 @@ class Stockfish():
             board.push(move)
             info = engine.analyse(board, chess.engine.Limit(time=self._time_limit))
             scores.append((str(move), info['score'].white().score()))
-            print(f'Move: {move}; Score: {info['score'].white().score()}')
 
         engine.quit()
 

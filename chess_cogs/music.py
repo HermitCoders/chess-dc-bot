@@ -4,6 +4,7 @@ import yt_dlp as youtube_dl
 
 from discord.ext import commands
 from queue import Queue
+from discord import app_commands
 
 # Suppress noise about console usage from errors
 youtube_dl.utils.bug_reports_message = lambda: ''
@@ -55,81 +56,104 @@ class YTDLSource(discord.PCMVolumeTransformer):
 
 class Music(commands.Cog):
     def __init__(self, bot):
-        self.bot = bot
+        self.bot: commands.Bot = bot
         self._current_volume = 0.02
 
         self._song_queue: Queue[dict] = Queue()
         self._queue_enabled: bool = False
 
-    async def play_next_song(self, ctx):
+    async def play_next_song(self, channel, voice_client):
         if self._queue_enabled:
             if not self._song_queue.empty():
                 song_data: dict = self._song_queue.get()
                 player: discord.PCMVolumeTransformer = await YTDLSource.from_url(song_data['url'], loop=self.bot.loop, volume=self._current_volume)
-                ctx.voice_client.play(player, after=lambda e: print(f'Player error: {e}') if e else self.bot.loop.create_task(self.play_next_song(ctx)))
-                await ctx.send(f'From queue, now playing: **{player.title}**')
+                voice_client.play(player, after=lambda e: print(f'Player error: {e}') if e else self.bot.loop.create_task(self.play_next_song(channel, voice_client)))
+                await channel.send(f'From queue, now playing: **{player.title}**')
                 print(f'From queue, now playing: {player.title}')
             else:
-                await ctx.send(f'Queue is empty')
+                await channel.send(f'Queue is empty')
                 print(f'Queue is empty')
 
-    @commands.command(aliases=['p'])
-    async def playlist(self, ctx, *, url: str):
+
+    async def ensure_voice(self, interaction: discord.Interaction) -> bool:
+        voice_client: discord.VoiceClient = discord.utils.get(self.bot.voice_clients, guild=interaction.guild)
+        if voice_client is None:
+            if interaction.user.voice:
+                await interaction.user.voice.channel.connect()
+                print(f'Joined {interaction.user.voice.channel.name} channel')
+                # source = discord.PCMVolumeTransformer(discord.FFmpegPCMAudio("X2Download.app - Alright let's do this (Counter Strike Bot Call) - Sound Effect for editing (320 kbps).mp3"))
+                # voice.play(source)
+                return True
+            else:
+                await interaction.response.send_message("You are not connected to a voice channel.")
+                # raise commands.CommandError("Author not connected to a voice channel.")
+                return False
+        return True
+
+    @app_commands.command(name='playlist')
+    @app_commands.describe(url='youtube playlist url')
+    async def playlist(self, interaction: discord.Interaction, url: str) -> None:
         """
         Enables queue and adds songs from playlist to queue.
 
         :param url: youtube url
         """
-        self._queue_enabled = True
-        async with ctx.typing():    
+        await interaction.response.defer()
+        if await self.ensure_voice(interaction):
+            self._queue_enabled = True
             playlist_data = await self.bot.loop.run_in_executor(None, lambda: ytdl.extract_info(url, download=False))
             for song_data in playlist_data['entries']:
                 self._song_queue.put(song_data)
-            await ctx.send(f'Queued: playlist **{playlist_data['title']}** with **{len(playlist_data['entries'])}** songs')
+            await interaction.followup.send(f'Queued: playlist **{playlist_data['title']}** with **{len(playlist_data['entries'])}** songs')
             print(f'Queued: playlist {playlist_data['title']} with {len(playlist_data['entries'])} songs')
+            
+            voice_client: discord.VoiceClient = discord.utils.get(self.bot.voice_clients, guild=interaction.guild)
+            if not voice_client.is_playing():
+                await self.play_next_song(interaction.channel, voice_client)
 
-            if not ctx.voice_client.is_playing():
-                await self.play_next_song(ctx)
-
-    @commands.command(aliases=['a'])
-    async def add(self, ctx, *, url):
+    @app_commands.command(name='add')
+    @app_commands.describe(url='youtube song url')
+    async def add(self, interaction: discord.Interaction, url: str):
         """
         Enables queue and adds song to queue.
 
         :param url: youtube url
         """
-        self._queue_enabled = True
-
-        async with ctx.typing():    
+        await interaction.response.defer()
+        if await self.ensure_voice(interaction):
+            self._queue_enabled = True
             song_data = await self.bot.loop.run_in_executor(None, lambda: ytdl.extract_info(url, download=False))
             song_data['url'] = url
             self._song_queue.put(song_data)
-        await ctx.send(f'Queued: **{song_data['title']}**')
-        print(f'Queued: {song_data['title']}')
+            await interaction.followup.send(f'Queued: **{song_data['title']}**')
+            print(f'Queued: {song_data['title']}')
 
-        if not ctx.voice_client.is_playing():
-            await self.play_next_song(ctx)
+            voice_client: discord.VoiceClient = discord.utils.get(self.bot.voice_clients, guild=interaction.guild)
+            if not voice_client.is_playing():
+                await self.play_next_song(interaction.channel, voice_client)
 
-    @commands.command(aliases=['s'])
-    async def skip(self, ctx):
+    @app_commands.command(name='skip')
+    async def skip(self, interaction: discord.Interaction):
         """Skips current song and plays next in queue."""
-        vc: discord.VoiceClient = ctx.voice_client
+        # await interaction.response.defer()
+        vc: discord.VoiceClient = discord.utils.get(self.bot.voice_clients, guild=interaction.guild)
         if vc.is_playing():
-            async with ctx.typing(): 
-                vc.stop()   
-            await ctx.send(f'Skipped: **{vc.source.title}**')
+            title = vc.source.title
+            vc.stop()   
+            # await interaction.followup.send(f'Skipped: **{vc.source.title}**')
+            await interaction.response.send_message(f'Skipped: **{title}**')
             print(f'Skipped: {vc.source.title}')
 
-    @commands.command()
-    async def clear(self, ctx):
+    @app_commands.command(name='clear')
+    async def clear(self, interaction: discord.Interaction):
         """Clears queue."""
         with self._song_queue.mutex:
             self._song_queue.queue.clear()
-        await ctx.send(f'Queue was cleared')
+        await interaction.response.send_message(f'Queue was cleared')
         print(f'Queue was cleared')
 
-    @commands.command()
-    async def show(self, ctx):
+    @app_commands.command(name='show')
+    async def show(self, interaction: discord.Interaction):
         """Shows queue."""
         with self._song_queue.mutex:
             queue = list(self._song_queue.queue)
@@ -137,94 +161,80 @@ class Music(commands.Cog):
         if len(queue) > 0:
             msg = "\n- ".join([song['title'] for song in queue[:song_limit]])
             if len(queue) > song_limit:
-                msg = msg + "\n- ..."
-            await ctx.send(f'Current queue:\n- {msg}')
+                msg = msg + f'\n- ...another {len(queue)-song_limit} songs'
+            await interaction.response.send_message(f'Current queue:\n- {msg}')
         else:
-            await ctx.send(f'Current queue is empty')
+            await interaction.response.send_message(f'Current queue is empty')
 
         print(f'Queue was showed')
 
-    @commands.command(aliases=['v'])
-    async def volume(self, ctx, volume: int):
+    @app_commands.command(name='volume')
+    @app_commands.describe(volume='integer from 1 to 100, default is 2')
+    async def volume(self, interaction: discord.Interaction, volume: int = 2):
         """
         Changes the player's volume.
 
         :param volume: integer from 1 to 100
         """
+        voice_client: discord.VoiceClient = discord.utils.get(self.bot.voice_clients, guild=interaction.guild)
+        if voice_client is None:
+            await interaction.response.send_message("Not connected to a voice channel.")
+        else:
+            # set volume for current song playing
+            voice_client.source.volume = volume / 100
+            # save volume for next song
+            self._current_volume = volume / 100
 
-        if ctx.voice_client is None:
-            return await ctx.send("Not connected to a voice channel.")
+            await interaction.response.send_message(f"Changed volume to **{volume}%**")
+            print(f"Changed volume to {volume}%")
 
-        # set volume for current song playing
-        ctx.voice_client.source.volume = volume / 100
-        # save volume for next song
-        self._current_volume = volume / 100
-
-        await ctx.send(f"Changed volume to **{volume}%**")
-        print(f"Changed volume to {volume}%")
-
-    @commands.command()
-    async def kill(self, ctx):
+    @app_commands.command(name='kill')
+    async def kill(self, interaction: discord.Interaction):
         """Disables and cleras queue, stops and disconnects the bot from voice."""
-        vc: discord.VoiceClient = ctx.voice_client
+        await interaction.response.defer()
+        vc: discord.VoiceClient = discord.utils.get(self.bot.voice_clients, guild=interaction.guild)
         self._queue_enabled = False
 
         with self._song_queue.mutex:
             self._song_queue.queue.clear()
 
-        await ctx.send(f'Queue was cleared and disabled')
+        await interaction.followup.send(f'Queue was cleared and disabled')
         print(f'Queue was cleared and disabled')
 
         if vc.is_playing():
-            async with ctx.typing():
-                vc.stop()
-            await ctx.send(f'Stopped audio')
+            vc.stop()
+            await interaction.followup.send(f'Stopped audio')
             print("Stopped audio")
 
-        await ctx.voice_client.disconnect()
+        await vc.disconnect()
         print("Voice channel disconnected")
 
-    @commands.command()
-    async def resume(self, ctx):
+    @app_commands.command(name='resume')
+    async def resume(self, interaction: discord.Interaction):
         """Resumes audio."""
-        vc: discord.VoiceClient = ctx.voice_client
+        vc: discord.VoiceClient = discord.utils.get(self.bot.voice_clients, guild=interaction.guild)
         if vc is None:
-            return await ctx.send("Not connected to a voice channel.")
+            return await interaction.response.send_message("Not connected to a voice channel.")
 
         if vc.is_paused():
-            async with ctx.typing():
-                vc.resume()
-            await ctx.send(f'Resumed audio')
+            vc.resume()
+            await interaction.response.send_message(f'Resumed audio')
             print("Resumed audio")
         else:
-            await ctx.send(f'Nothing\' paused\' mate')
+            await interaction.response.send_message(f'Nothing\' paused\' mate')
             print("Audio is already stopped/resumed")
 
-    @commands.command()
-    async def pause(self, ctx):
+    @app_commands.command(name='pause')
+    async def pause(self, interaction: discord.Interaction):
         """Pauses audio."""
-        vc: discord.VoiceClient = ctx.voice_client
+        vc: discord.VoiceClient = discord.utils.get(self.bot.voice_clients, guild=interaction.guild)
         if vc is None:
-            return await ctx.send("Not connected to a voice channel.")
+            return await interaction.response.send_message("Not connected to a voice channel.")
 
         if vc.is_playing():
-            async with ctx.typing():
-                vc.pause()
-            await ctx.send(f'Paused audio')
+            vc.pause()
+            await interaction.response.send_message(f'Paused audio')
             print("Paused audio")
         else:
-            await ctx.send(f'Nothing\' playin\' mate')
+            await interaction.response.send_message(f'Nothing\' playin\' mate')
             print("Audio is already stopped/paused")
-
-    @add.before_invoke
-    @playlist.before_invoke
-    async def ensure_voice(self, ctx):
-        if ctx.voice_client is None:
-            if ctx.author.voice:
-                voice = await ctx.author.voice.channel.connect()
-                print(f'Joined {ctx.author.voice.channel.name} channel')
-                source = discord.PCMVolumeTransformer(discord.FFmpegPCMAudio("X2Download.app - Alright let's do this (Counter Strike Bot Call) - Sound Effect for editing (320 kbps).mp3"))
-                voice.play(source)
-            else:
-                await ctx.send("You are not connected to a voice channel.")
-                raise commands.CommandError("Author not connected to a voice channel.")
