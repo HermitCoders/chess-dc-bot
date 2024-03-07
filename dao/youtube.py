@@ -2,7 +2,6 @@ import asyncio
 import yt_dlp as youtube_dl
 import discord
 
-
 # Suppress noise about console usage from errors
 youtube_dl.utils.bug_reports_message = lambda: ''
 

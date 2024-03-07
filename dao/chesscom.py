@@ -1,7 +1,6 @@
 from datetime import date
 import requests
 
-
 class ChessComDAO():
     def __init__(self) -> None:
         self._headers: dict = {

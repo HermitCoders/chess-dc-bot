@@ -1,6 +1,4 @@
-
 import discord
-import yt_dlp as youtube_dl
 from discord.ext import commands
 from queue import Queue
 from discord import app_commands
