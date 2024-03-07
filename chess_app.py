@@ -23,13 +23,11 @@ intents = discord.Intents.default()
 intents.message_content = True
 intents.presences = True
 
-
 bot = commands.Bot(
     command_prefix=commands.when_mentioned_or("!"),
     description='DJ SZACH Z ODSŁONY WJEŻDZA NA SALONY',
     intents=intents,
 )
-
 
 @bot.event
 async def on_ready():
@@ -37,15 +35,13 @@ async def on_ready():
     print(f'Logged in as {bot.user} (ID: {bot.user.id}) and synced {len(synced)} commands')
     print('------')
 
-
 async def main():
     async with bot:
         # add cogs
-        await bot.add_cog(Greeting(bot), guild=guild)
+        await bot.add_cog(Greeting(bot))
         await bot.add_cog(Music(bot), guild=guild)
         await bot.add_cog(Analysis(bot, stockfish=Stockfish(stockfish_path=STOCKFISH_PATH)), guild=guild)
         # launch app with saved token
         await bot.start(TOKEN)
-
 
 asyncio.run(main())
