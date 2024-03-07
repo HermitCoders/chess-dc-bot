@@ -52,14 +52,17 @@ class Music(commands.Cog):
         if await self.ensure_voice(interaction):
             self._queue_enabled = True
             playlist_data = await self.bot.loop.run_in_executor(None, lambda: ytdl.extract_info(url, download=False))
-            for song_data in playlist_data['entries']:
-                self._song_queue.put(song_data)
-            await interaction.followup.send(f'Queued: playlist **{playlist_data['title']}** with **{len(playlist_data['entries'])}** songs')
-            print(f'Queued: playlist {playlist_data['title']} with {len(playlist_data['entries'])} songs')
-            
-            voice_client: discord.VoiceClient = discord.utils.get(self.bot.voice_clients, guild=interaction.guild)
-            if not voice_client.is_playing():
-                await self.play_next_song(interaction.channel, voice_client)
+            if 'entries' not in playlist_data:
+                await interaction.followup.send('That is not a playlist!')
+            else:
+                for song_data in playlist_data['entries']:
+                    self._song_queue.put(song_data)
+                await interaction.followup.send(f'Queued: playlist **{playlist_data['title']}** with **{len(playlist_data['entries'])}** songs')
+                print(f'Queued: playlist {playlist_data['title']} with {len(playlist_data['entries'])} songs')
+                
+                voice_client: discord.VoiceClient = discord.utils.get(self.bot.voice_clients, guild=interaction.guild)
+                if not voice_client.is_playing():
+                    await self.play_next_song(interaction.channel, voice_client)
 
     @app_commands.command(name='add')
     @app_commands.describe(url='youtube song url')
@@ -73,14 +76,17 @@ class Music(commands.Cog):
         if await self.ensure_voice(interaction):
             self._queue_enabled = True
             song_data = await self.bot.loop.run_in_executor(None, lambda: ytdl.extract_info(url, download=False))
-            song_data['url'] = url
-            self._song_queue.put(song_data)
-            await interaction.followup.send(f'Queued: **{song_data['title']}**')
-            print(f'Queued: {song_data['title']}')
+            if 'entries' in song_data:
+                await interaction.followup.send('That is not a song!')
+            else:
+                song_data['url'] = url
+                self._song_queue.put(song_data)
+                await interaction.followup.send(f'Queued: **{song_data['title']}**')
+                print(f'Queued: {song_data['title']}')
 
-            voice_client: discord.VoiceClient = discord.utils.get(self.bot.voice_clients, guild=interaction.guild)
-            if not voice_client.is_playing():
-                await self.play_next_song(interaction.channel, voice_client)
+                voice_client: discord.VoiceClient = discord.utils.get(self.bot.voice_clients, guild=interaction.guild)
+                if not voice_client.is_playing():
+                    await self.play_next_song(interaction.channel, voice_client)
 
     @app_commands.command(name='skip')
     async def skip(self, interaction: discord.Interaction):
@@ -117,24 +123,29 @@ class Music(commands.Cog):
         print(f'Queue was showed')
 
     @app_commands.command(name='volume')
-    @app_commands.describe(volume='integer from 1 to 100, default is 2')
-    async def volume(self, interaction: discord.Interaction, volume: int = 2):
+    @app_commands.describe(level='integer from 1 to 100, default is 2')
+    @app_commands.choices(level = [
+        app_commands.Choice(name = 'default', value = 2),
+        app_commands.Choice(name = 'loud', value = 10),
+        app_commands.Choice(name = 'very loud', value = 50),
+    ])
+    async def volume(self, interaction: discord.Interaction, level: int = 2):
         """
         Changes the player's volume.
 
-        :param volume: integer from 1 to 100
+        :param level: integer from 1 to 100
         """
         voice_client: discord.VoiceClient = discord.utils.get(self.bot.voice_clients, guild=interaction.guild)
         if voice_client is None:
             await interaction.response.send_message("Not connected to a voice channel.")
         else:
             # set volume for current song playing
-            voice_client.source.volume = volume / 100
+            voice_client.source.volume = level / 100
             # save volume for next song
-            self._current_volume = volume / 100
+            self._current_volume = level / 100
 
-            await interaction.response.send_message(f"Changed volume to **{volume}%**")
-            print(f"Changed volume to {volume}%")
+            await interaction.response.send_message(f"Changed volume to **{level}%**")
+            print(f"Changed volume to {level}%")
 
     @app_commands.command(name='kill')
     async def kill(self, interaction: discord.Interaction):

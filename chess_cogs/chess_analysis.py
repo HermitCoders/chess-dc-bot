@@ -24,6 +24,11 @@ class Analysis(commands.Cog):
 
     @app_commands.command(name='analysis')
     @app_commands.describe(username='chess.com username')
+    @app_commands.choices(username = [
+        app_commands.Choice(name = 'rozchlastywacz', value = 'rozchlastywacz'),
+        app_commands.Choice(name = 'quadrogroth', value = 'quadrogroth'),
+        app_commands.Choice(name = 'SzachowySmoluch', value = 'SzachowySmoluch'),
+    ])
     async def analyse(self, interaction: discord.Interaction, username: str):
         """
         Sends analysis of last match played by chess.com user.
