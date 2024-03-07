@@ -5,6 +5,7 @@ from discord.ext import commands
 from queue import Queue
 from discord import app_commands
 from dao.youtube import YTDLSource, create_ytdl
+import random
 
 ytdl = create_ytdl()
 
@@ -42,7 +43,12 @@ class Music(commands.Cog):
 
     @app_commands.command(name='playlist')
     @app_commands.describe(url='youtube playlist url')
-    async def playlist(self, interaction: discord.Interaction, url: str) -> None:
+    @app_commands.describe(shuffle='True if playlist should be shuffled, default False')
+    @app_commands.choices(shuffle = [
+        app_commands.Choice(name = 'shuffle playlist', value = 1),
+        app_commands.Choice(name = 'DO NOT shuffle', value = 0),
+    ])
+    async def playlist(self, interaction: discord.Interaction, url: str, shuffle: int = 0) -> None:
         """
         Enables queue and adds songs from playlist to queue.
 
@@ -55,10 +61,13 @@ class Music(commands.Cog):
             if 'entries' not in playlist_data:
                 await interaction.followup.send('That is not a playlist!')
             else:
-                for song_data in playlist_data['entries']:
+                playlist = playlist_data['entries']
+                if shuffle == 1:
+                    random.shuffle(playlist)
+                for song_data in playlist:
                     self._song_queue.put(song_data)
-                await interaction.followup.send(f'Queued: playlist **{playlist_data['title']}** with **{len(playlist_data['entries'])}** songs')
-                print(f'Queued: playlist {playlist_data['title']} with {len(playlist_data['entries'])} songs')
+                await interaction.followup.send(f'Queued: playlist **{playlist_data['title']}** with **{len(playlist)}** songs')
+                print(f'Queued: playlist {playlist_data['title']} with {len(playlist)} songs')
                 
                 voice_client: discord.VoiceClient = discord.utils.get(self.bot.voice_clients, guild=interaction.guild)
                 if not voice_client.is_playing():
