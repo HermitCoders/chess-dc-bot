@@ -19,7 +19,14 @@ class Music(commands.Cog):
         if self._queue_enabled:
             if not self._song_queue.empty():
                 song_data: dict = self._song_queue.get()
-                player: discord.PCMVolumeTransformer = await YTDLSource.from_url(song_data['url'], loop=self.bot.loop, volume=self._current_volume)
+                try:
+                    player: discord.PCMVolumeTransformer = await YTDLSource.from_url(song_data['url'], loop=self.bot.loop, volume=self._current_volume)
+                except:
+                    await channel.send(f'From queue, SKIPPING: **{song_data['title']}**, {song_data['url']}')
+                    print(f'From queue, SKIPPING: {song_data['title']}, {song_data['url']}')
+                    self.bot.loop.create_task(self.play_next_song(channel, voice_client))
+                    return
+
                 voice_client.play(player, after=lambda e: print(f'Player error: {e}') if e else self.bot.loop.create_task(self.play_next_song(channel, voice_client)))
                 await channel.send(f'From queue, now playing: **{player.title}**')
                 print(f'From queue, now playing: {player.title}')
@@ -48,7 +55,7 @@ class Music(commands.Cog):
     ])
     async def playlist(self, interaction: discord.Interaction, url: str, shuffle: int = 0) -> None:
         """
-        Enables queue and adds songs from playlist to queue.
+        Enables queue and adds available songs from playlist to queue.
 
         :param url: youtube url
         """
@@ -59,13 +66,13 @@ class Music(commands.Cog):
             if 'entries' not in playlist_data:
                 await interaction.followup.send('That is not a playlist!')
             else:
-                playlist = playlist_data['entries']
+                playlist = [song for song in playlist_data['entries'] if song['duration'] is not None]
                 if shuffle == 1:
                     random.shuffle(playlist)
                 for song_data in playlist:
                     self._song_queue.put(song_data)
-                await interaction.followup.send(f'Queued: playlist **{playlist_data['title']}** with **{len(playlist)}** songs')
-                print(f'Queued: playlist {playlist_data['title']} with {len(playlist)} songs')
+                await interaction.followup.send(f'Queued: playlist **{playlist_data['title']}** with **{len(playlist)}** songs, removed **{len(playlist_data['entries'])-len(playlist)}** song(s) due to unavailability')
+                print(f'Queued: playlist **{playlist_data['title']}** with **{len(playlist)}** songs, removed **{len(playlist_data['entries'])-len(playlist)}** song(s) due to unavailability')
                 
                 voice_client: discord.VoiceClient = discord.utils.get(self.bot.voice_clients, guild=interaction.guild)
                 if not voice_client.is_playing():
@@ -82,7 +89,12 @@ class Music(commands.Cog):
         await interaction.response.defer()
         if await self.ensure_voice(interaction):
             self._queue_enabled = True
-            song_data = await self.bot.loop.run_in_executor(None, lambda: ytdl.extract_info(url, download=False))
+            try:
+                song_data = await self.bot.loop.run_in_executor(None, lambda: ytdl.extract_info(url, download=False))
+            except:
+                await interaction.followup.send('Song not available')
+                print('Song not available')
+            
             if 'entries' in song_data:
                 await interaction.followup.send('That is not a song!')
             else:
@@ -96,14 +108,21 @@ class Music(commands.Cog):
                     await self.play_next_song(interaction.channel, voice_client)
 
     @app_commands.command(name='skip')
-    async def skip(self, interaction: discord.Interaction):
+    @app_commands.describe(step='how many songs to skip')
+    async def skip(self, interaction: discord.Interaction, step: int = 1):
         """Skips current song and plays next in queue."""
+        await interaction.response.defer()
         vc: discord.VoiceClient = discord.utils.get(self.bot.voice_clients, guild=interaction.guild)
         if vc.is_playing():
+            if step > 1:
+                for _ in range(step-1):
+                    song_data = self._song_queue.get()
+                    await interaction.channel.send(f'Skipped: **{song_data['title']}**')
+                    print(f'Skipped: {song_data['title']}')
             title = vc.source.title
             vc.stop()   
-            await interaction.response.send_message(f'Skipped: **{title}**')
-            print(f'Skipped: {vc.source.title}')
+            await interaction.followup.send(f'Skipped currently playing: **{title}**')
+            print(f'Skipped currently playing: {vc.source.title}')
 
     @app_commands.command(name='clear')
     async def clear(self, interaction: discord.Interaction):
