@@ -12,7 +12,7 @@ def create_ytdl():
         'restrictfilenames': True,
         'noplaylist': True,
         'nocheckcertificate': True,
-        'ignoreerrors': True,
+        'ignoreerrors': False,
         'logtostderr': False,
         'quiet': False,
         'progress': True,
